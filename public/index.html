@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Zero-Excuse Champion Tracker</title>
+  <style>
+    * { box-sizing: border-box; font-family: 'Segoe UI', sans-serif; }
+    body { background: #0f172a; color: #f8fafc; margin: 0; padding: 20px; display: flex; justify-content: center; }
+    .container { max-width: 600px; width: 100%; }
+    .card { background: #1e293b; border-radius: 12px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+    h1, h2 { margin-top: 0; color: #38bdf8; }
+    input { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #334155; background: #0f172a; color: white; margin-bottom: 10px; }
+    button { background: #38bdf8; color: #0f172a; border: none; padding: 10px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; }
+    button:hover { background: #0284c7; color: white; }
+    .habit-item { display: flex; justify-content: space-between; align-items: center; background: #0f172a; padding: 10px 14px; border-radius: 8px; margin-top: 8px; }
+    .done { text-decoration: line-through; color: #94a3b8; }
+    .badge { background: #f59e0b; color: #0f172a; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: bold; margin-left: 8px; }
+    .belief-box { background: #0f172a; border-left: 4px solid #10b981; padding: 12px; border-radius: 6px; margin-top: 10px; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔥 Zero-Excuse Champion Tracker</h1>
+
+    <!-- Login Section -->
+    <div id="loginCard" class="card">
+      <h2>Enter Your Champion ID</h2>
+      <input type="text" id="usernameInput" placeholder="Enter your username (e.g. champion1)" />
+      <button onclick="login()">Enter Dashboard</button>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboard" class="hidden">
+      <div class="card">
+        <h2>🎯 My 1 Big Goal</h2>
+        <input type="text" id="goalInput" placeholder="What is your non-negotiable goal?" />
+        <button onclick="saveGoal()">Lock In Goal</button>
+      </div>
+
+      <div class="card">
+        <h2>⚡ Top 3 Daily Habits</h2>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="habitInput" placeholder="Add a daily habit (max 3)..." style="margin:0;" />
+          <button onclick="addHabit()">Add</button>
+        </div>
+        <div id="habitList"></div>
+      </div>
+
+      <div class="card">
+        <h2>🧠 Limiting Belief Transformer</h2>
+        <input type="text" id="beliefInput" placeholder="Type a negative thought (e.g. I can't code)..." />
+        <button onclick="transformBelief()">Reprogram Thought</button>
+        <div id="beliefList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let currentUser = '';
+
+    async function login() {
+      const username = document.getElementById('usernameInput').value.trim();
+      if (!username) return alert('Enter a username!');
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username })
+      });
+      const data = await res.json();
+      currentUser = data.username;
+      document.getElementById('loginCard').classList.add('hidden');
+      document.getElementById('dashboard').classList.remove('hidden');
+      render(data);
+    }
+
+    async function saveGoal() {
+      const bigGoal = document.getElementById('goalInput').value;
+      const res = await fetch('/api/goal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, bigGoal })
+      });
+      render(await res.json());
+      alert('Goal locked in!');
+    }
+
+    async function addHabit() {
+      const text = document.getElementById('habitInput').value.trim();
+      if (!text) return;
+      const res = await fetch('/api/habits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, text })
+      });
+      const data = await res.json();
+      if (data.error) return alert(data.error);
+      document.getElementById('habitInput').value = '';
+      render(data);
+    }
+
+    async function toggleHabit(habitId) {
+      const res = await fetch('/api/habits/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, habitId })
+      });
+      render(await res.json());
+    }
+
+    async function deleteHabit(habitId) {
+      const res = await fetch(`/api/habits/${currentUser}/${habitId}`, { method: 'DELETE' });
+      render(await res.json());
+    }
+
+    async function transformBelief() {
+      const limiting = document.getElementById('beliefInput').value.trim();
+      if (!limiting) return;
+      const res = await fetch('/api/belief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: currentUser, limiting })
+      });
+      document.getElementById('beliefInput').value = '';
+      render(await res.json());
+    }
+
+    function render(user) {
+      document.getElementById('goalInput').value = user.bigGoal || '';
+      
+      const habitList = document.getElementById('habitList');
+      habitList.innerHTML = user.habits.map(h => `
+        <div class="habit-item">
+          <div onclick="toggleHabit('${h._id}')" style="cursor:pointer;">
+            <input type="checkbox" ${h.completed ? 'checked' : ''} style="width:auto; margin-right:8px;" />
+            <span class="${h.completed ? 'done' : ''}">${h.text}</span>
+            <span class="badge">🔥 ${h.streak}</span>
+          </div>
+          <button onclick="deleteHabit('${h._id}')" style="background:#ef4444; padding:4px 10px;">X</button>
+        </div>
+      `).join('');
+
+      const beliefList = document.getElementById('beliefList');
+      beliefList.innerHTML = user.beliefs.map(b => `
+        <div class="belief-box">
+          <div style="color:#f87171; font-size:13px;">❌ "${b.limiting}"</div>
+          <div style="color:#34d399; font-weight:bold; margin-top:4px;">✅ "${b.empowering}"</div>
+        </div>
+      `).join('');
+    }
+  </script>
+</body>
+</html>
