@@ -3,6 +3,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 
 const app = express();
 app.use(cors());
@@ -13,8 +14,25 @@ mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('MongoDB Connected Successfully!'))
   .catch(err => console.error('MongoDB Connection Error:', err));
 
+// Built-in Node.js Salted Scrypt Passcode Helpers
+function hashPasscode(passcode) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(passcode, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPasscode(passcode, storedHash) {
+  if (!storedHash || !storedHash.includes(':')) return false;
+  const [salt, key] = storedHash.split(':');
+  const keyBuffer = Buffer.from(key, 'hex');
+  const derivedKey = crypto.scryptSync(passcode, salt, 64);
+  if (keyBuffer.length !== derivedKey.length) return false;
+  return crypto.timingSafeEqual(keyBuffer, derivedKey);
+}
+
 const userSchema = new mongoose.Schema({
   username: { type: String, required: true, unique: true },
+  passcodeHash: { type: String, default: '' },
   bigGoal: { type: String, default: '' },
   witnessReps: { type: Number, default: 0 },
   habits: [{
@@ -32,26 +50,58 @@ const userSchema = new mongoose.Schema({
 
 const User = mongoose.model('User', userSchema);
 
-// Micro-Evolution v1.2 Health & Version Check
+function sanitizeUser(user) {
+  const obj = user.toObject();
+  delete obj.passcodeHash;
+  return obj;
+}
+
+// v2.0 Health & Version Check
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'OK',
-    version: 'v1.2',
+    version: 'v2.0',
+    edition: 'Pi Major Release',
     dbState: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
 });
 
-// Login or Auto-Register User
+// v2.0 Secure Login / Auto-Register with Champion Passcode
 app.post('/api/login', async (req, res) => {
   try {
     const username = (req.body.username || '').trim().toLowerCase();
-    if (!username) return res.status(400).json({ error: 'Username required' });
+    const passcode = (req.body.passcode || '').trim();
+
+    if (!username) return res.status(400).json({ error: 'Champion ID required' });
+    if (passcode.length < 4) return res.status(400).json({ error: 'Passcode must be at least 4 characters' });
+
     let user = await User.findOne({ username });
+
     if (!user) {
-      user = await User.create({ username, bigGoal: '', witnessReps: 0, habits: [], beliefs: [] });
+      user = await User.create({
+        username,
+        passcodeHash: hashPasscode(passcode),
+        bigGoal: '',
+        witnessReps: 0,
+        habits: [],
+        beliefs: []
+      });
+      return res.json({ ...sanitizeUser(user), authNotice: 'New Champion Vault created & locked!' });
     }
-    res.json(user);
+
+    // Seamless v1.x -> v2.0 migration: lock existing account on first v2.0 login
+    if (!user.passcodeHash) {
+      user.passcodeHash = hashPasscode(passcode);
+      await user.save();
+      return res.json({ ...sanitizeUser(user), authNotice: 'Existing account upgraded & locked with your Passcode!' });
+    }
+
+    if (!verifyPasscode(passcode, user.passcodeHash)) {
+      return res.status(401).json({ error: 'Invalid Champion Passcode!' });
+    }
+
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -65,7 +115,7 @@ app.post('/api/goal', async (req, res) => {
     if (!username) return res.status(400).json({ error: 'Username required' });
     const user = await User.findOneAndUpdate({ username }, { bigGoal }, { new: true });
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -84,7 +134,7 @@ app.post('/api/habits', async (req, res) => {
 
     user.habits.push({ text, completed: false, streak: 0, createdAt: new Date() });
     await user.save();
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -104,7 +154,7 @@ app.post('/api/habits/toggle', async (req, res) => {
     habit.completed = !habit.completed;
     habit.streak = habit.completed ? habit.streak + 1 : Math.max(0, habit.streak - 1);
     await user.save();
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -120,13 +170,13 @@ app.delete('/api/habits/:username/:habitId', async (req, res) => {
 
     user.habits = user.habits.filter(h => h._id.toString() !== habitId);
     await user.save();
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Transform Limiting Belief (Blank-Protected)
+// Transform Limiting Belief
 app.post('/api/belief', async (req, res) => {
   try {
     const username = (req.body.username || '').trim().toLowerCase();
@@ -145,13 +195,13 @@ app.post('/api/belief', async (req, res) => {
 
     user.beliefs.unshift({ limiting, empowering, createdAt: new Date() });
     await user.save();
-    res.json(user);
+    res.json(sanitizeUser(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Sync Witness Reps (Ready for v1.3)
+// Sync Witness Reps
 app.post('/api/witness', async (req, res) => {
   try {
     const username = (req.body.username || '').trim().toLowerCase();
@@ -161,7 +211,25 @@ app.post('/api/witness', async (req, res) => {
       { new: true }
     );
     if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
+    res.json(sanitizeUser(user));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// v2.0 Full Champion Vault JSON Backup Export
+app.get('/api/export/:username', async (req, res) => {
+  try {
+    const username = (req.params.username || '').trim().toLowerCase();
+    const user = await User.findOne({ username });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+
+    res.setHeader('Content-Disposition', `attachment; filename="${username}-champion-vault-v2.json"`);
+    res.json({
+      exportedAt: new Date().toISOString(),
+      version: 'v2.0',
+      champion: sanitizeUser(user)
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
