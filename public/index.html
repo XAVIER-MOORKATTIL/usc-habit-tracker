@@ -24,6 +24,22 @@
   <div class="container">
     <h1>🔥 Zero-Excuse Champion Tracker</h1>
 
+    <!-- Micro-Evolution v1.1: Witness Focus & Distraction Counter -->
+    <div id="witness-bar" style="background: #162238; border: 1px solid #2b4166; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 12px; color: #f8fafc;">
+      <div>
+        <div style="font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.08em; color: #38bdf8; font-weight: 700;">Witness Focus Engine • v1.1</div>
+        <div id="focus-timer-display" style="font-size: 1.75rem; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 2px;">25:00</div>
+      </div>
+
+      <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+        <button type="button" onclick="toggleFocusTimer()" id="focus-toggle-btn" style="background: #0ea5e9; color: #0f172a; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 700; cursor: pointer;">Start Sprint</button>
+        <button type="button" onclick="resetFocusTimer()" style="background: #334155; color: #f8fafc; border: none; padding: 8px 12px; border-radius: 8px; font-weight: 600; cursor: pointer;">Reset</button>
+        <button type="button" onclick="logWitnessRep()" style="background: #10b981; color: #0f172a; border: none; padding: 8px 14px; border-radius: 8px; font-weight: 700; cursor: pointer;">
+          Witness Rep: <span id="witness-rep-count">0</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Login Section -->
     <div id="loginCard" class="card">
       <h2>Enter Your Champion ID</h2>
@@ -58,6 +74,52 @@
   </div>
 
   <script>
+    let focusSeconds = 25 * 60;
+    let focusInterval = null;
+    let witnessReps = Number(localStorage.getItem('usc_witness_reps') || 0);
+    document.getElementById('witness-rep-count').textContent = witnessReps;
+
+    function renderFocusTime() {
+      const mins = String(Math.floor(focusSeconds / 60)).padStart(2, '0');
+      const secs = String(focusSeconds % 60).padStart(2, '0');
+      document.getElementById('focus-timer-display').textContent = `${mins}:${secs}`;
+    }
+
+    function toggleFocusTimer() {
+      const btn = document.getElementById('focus-toggle-btn');
+      if (focusInterval) {
+        clearInterval(focusInterval);
+        focusInterval = null;
+        btn.textContent = 'Resume Sprint';
+        return;
+      }
+      btn.textContent = 'Pause';
+      focusInterval = setInterval(() => {
+        if (focusSeconds > 0) {
+          focusSeconds--;
+          renderFocusTime();
+        } else {
+          clearInterval(focusInterval);
+          focusInterval = null;
+          btn.textContent = 'Completed!';
+        }
+      }, 1000);
+    }
+
+    function resetFocusTimer() {
+      clearInterval(focusInterval);
+      focusInterval = null;
+      focusSeconds = 25 * 60;
+      renderFocusTime();
+      document.getElementById('focus-toggle-btn').textContent = 'Start Sprint';
+    }
+
+    function logWitnessRep() {
+      witnessReps++;
+      localStorage.setItem('usc_witness_reps', witnessReps);
+      document.getElementById('witness-rep-count').textContent = witnessReps;
+    }
+
     let currentUser = '';
 
     async function login() {
